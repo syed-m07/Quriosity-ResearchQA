@@ -9,8 +9,11 @@ import com.researchrag.backend.documentapi.model.Document;
 import com.researchrag.backend.documentapi.model.DocumentStatus;
 import com.researchrag.backend.documentapi.repo.DocumentRepository;
 import com.researchrag.backend.userapi.user.User;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -23,6 +26,9 @@ import org.springframework.web.reactive.function.BodyInserters;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
@@ -32,6 +38,10 @@ public class DocumentService {
 
     private final DocumentRepository documentRepository;
     private final WebClient.Builder webClientBuilder;
+    private final RedisTemplate<String, String> redisTemplate;
+    private final ObjectMapper objectMapper;
+
+    private static final long CACHE_TTL_SECONDS = 300; // 5 minutes
 
     @Value("${rag.service.base-url}")
     private String ragServiceBaseUrl;
@@ -89,8 +99,19 @@ public class DocumentService {
     }
 
     public QueryResponse queryDocuments(QueryRequest queryRequest, User user) {
-        // Implement Redis caching here if desired
-        // For now, directly call Python RAG service
+        String cacheKey = generateCacheKey(queryRequest.getDocumentId(), queryRequest.getQuestion());
+
+        // Try to retrieve from cache
+        String cachedResponse = redisTemplate.opsForValue().get(cacheKey);
+        if (cachedResponse != null) {
+            try {
+                logger.info("Cache hit for query: {}", cacheKey);
+                return objectMapper.readValue(cachedResponse, QueryResponse.class);
+            } catch (JsonProcessingException e) {
+                logger.error("Error deserializing cached response for key {}: {}", cacheKey, e.getMessage());
+                // Fall through to actual service call if deserialization fails
+            }
+        }
 
         // Retrieve the Document entity to get the Python-generated documentId
         Document document = documentRepository.findById(queryRequest.getDocumentId())
@@ -112,7 +133,35 @@ public class DocumentService {
                     logger.error("Error querying RAG service: " + error.getMessage(), error);
                 });
 
-        // Block for testing/simplicity, in a real app consider reactive flow
-        return responseMono.block();
+        QueryResponse queryResponse = responseMono.block(); // Block for testing/simplicity, in a real app consider reactive flow
+
+        // Cache the response
+        if (queryResponse != null) {
+            try {
+                String jsonResponse = objectMapper.writeValueAsString(queryResponse);
+                redisTemplate.opsForValue().set(cacheKey, jsonResponse, CACHE_TTL_SECONDS, TimeUnit.SECONDS);
+                logger.info("Cached response for query: {}", cacheKey);
+            } catch (JsonProcessingException e) {
+                logger.error("Error serializing response for caching for key {}: {}", cacheKey, e.getMessage());
+            }
+        }
+        return queryResponse;
+    }
+
+    private String generateCacheKey(Long documentId, String question) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(question.getBytes());
+            StringBuilder hexString = new StringBuilder();
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) hexString.append('0');
+                hexString.append(hex);
+            }
+            return "query:" + documentId + ":" + hexString.toString();
+        } catch (NoSuchAlgorithmException e) {
+            logger.error("SHA-256 algorithm not found, falling back to simple key generation", e);
+            return "query:" + documentId + ":" + question.hashCode(); // Fallback
+        }
     }
 }
