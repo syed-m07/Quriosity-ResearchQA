@@ -36,3 +36,4 @@ build/
 /src/main/resources/application.properties
 /src/main/java/com/researchrag/backend/error.md
 /src/main/java/com/researchrag/backend/summary.md
+/src/main/java/com/researchrag/backend/phase2.md
