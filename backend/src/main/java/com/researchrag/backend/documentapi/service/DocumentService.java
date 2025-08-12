@@ -29,6 +29,8 @@ import java.time.LocalDateTime;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.concurrent.TimeUnit;
+import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -45,6 +47,19 @@ public class DocumentService {
 
     @Value("${rag.service.base-url}")
     private String ragServiceBaseUrl;
+
+    public List<DocumentMetadataDto> getAllDocuments(User user) {
+        List<Document> documents = documentRepository.findByUser(user);
+        return documents.stream()
+                .map(doc -> DocumentMetadataDto.builder()
+                        .id(doc.getId())
+                        .fileName(doc.getFileName())
+                        .uploadDate(doc.getUploadDate())
+                        .status(doc.getStatus())
+                        .pythonDocumentId(doc.getPythonDocumentId())
+                        .build())
+                .collect(Collectors.toList());
+    }
 
     public DocumentMetadataDto uploadAndProcessDocument(MultipartFile file, User user) throws IOException {
         Document document = Document.builder()
@@ -66,18 +81,21 @@ public class DocumentService {
         MultipartBodyBuilder bodyBuilder = new MultipartBodyBuilder();
         bodyBuilder.part("file", file.getBytes()).filename(file.getOriginalFilename()); // Assuming Python expects a field named 'file'
 
-        PythonUploadResponse pythonResponse = webClient.post()
-                .uri("/upload")
-                .contentType(MediaType.MULTIPART_FORM_DATA)
-                .body(BodyInserters.fromMultipartData(bodyBuilder.build()))
-                .retrieve()
-                .bodyToMono(PythonUploadResponse.class)
-                .doOnError(error -> {
-                    logger.error("Error sending document to RAG service: " + error.getMessage(), error);
-                    savedDocument.setStatus(DocumentStatus.FAILED);
-                    documentRepository.save(savedDocument);
-                })
-                .block(); // Block here to wait for the response
+        PythonUploadResponse pythonResponse = null;
+        try {
+            pythonResponse = webClient.post()
+                    .uri("/upload")
+                    .contentType(MediaType.MULTIPART_FORM_DATA)
+                    .body(BodyInserters.fromMultipartData(bodyBuilder.build()))
+                    .retrieve()
+                    .bodyToMono(PythonUploadResponse.class)
+                    .block(); // This is the blocking call
+        } catch (Exception e) { // Catch a general Exception for now to see what's happening
+            logger.error("Failed to communicate with Python RAG service during upload: " + e.getMessage(), e);
+            savedDocument.setStatus(DocumentStatus.FAILED);
+            documentRepository.save(savedDocument);
+            throw new RuntimeException("Failed to process document with RAG service.", e);
+        }
 
         if (pythonResponse != null && pythonResponse.getDocument_id() != null) {
             savedDocument.setStatus(DocumentStatus.COMPLETED);
