@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { getDocuments, uploadDocument } from '@/lib/api';
 import { Document } from '@/types/document';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, UploadCloud, MessageSquare } from 'lucide-react';
+import { Loader2, UploadCloud, MessageSquare, CheckCircle2, XCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -13,23 +13,54 @@ const Dashboard = () => {
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isLoadingDocs, setIsLoadingDocs] = useState(true);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+
+  const fetchDocuments = async (isBackground = false) => {
+    if (!isBackground) {
+        setIsLoadingDocs(true);
+    }
+    try {
+      const response = await getDocuments();
+      setDocuments([...response.data]);
+    } catch (error) {
+      console.error('Failed to fetch documents:', error);
+      if (!isBackground) {
+        toast.error('Failed to load documents.');
+      }
+    } finally {
+      if (!isBackground) {
+        setIsLoadingDocs(false);
+      }
+    }
+  };
 
   useEffect(() => {
     fetchDocuments();
   }, []);
 
-  const fetchDocuments = async () => {
-    setIsLoadingDocs(true);
-    try {
-      const response = await getDocuments();
-      setDocuments(response.data);
-    } catch (error) {
-      console.error('Failed to fetch documents:', error);
-      toast.error('Failed to load documents.');
-    } finally {
-      setIsLoadingDocs(false);
+  useEffect(() => {
+    const isProcessing = documents.some(doc => doc.status === 'PROCESSING');
+
+    if (isProcessing && !pollingRef.current) {
+      // Start polling
+      pollingRef.current = setInterval(() => {
+        console.log("Polling for document status...");
+        fetchDocuments(true); // Fetch in the background
+      }, 5000); // Poll every 5 seconds
+    } else if (!isProcessing && pollingRef.current) {
+      // Stop polling
+      console.log("Stopping polling.");
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
     }
-  };
+
+    // Cleanup on unmount
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
+    };
+  }, [documents]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
@@ -48,16 +79,30 @@ const Dashboard = () => {
     setIsUploading(true);
     try {
       const newDocument = await uploadDocument(file);
+      // Add the new document with PROCESSING status to the list immediately
       setDocuments((prevDocs) => [...prevDocs, newDocument.data]);
       setFile(null);
-      toast.success('Document uploaded successfully!');
+      toast.success('Upload started! Processing in the background.');
     } catch (error) {
       console.error('Failed to upload document:', error);
-      toast.error('Failed to upload document. Please try again.');
+      toast.error('Failed to start document upload. Please try again.');
     } finally {
       setIsUploading(false);
     }
   };
+
+  const renderStatus = (status: Document['status']) => {
+    switch (status) {
+        case 'PROCESSING':
+            return <span className="flex items-center text-blue-500"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Processing</span>;
+        case 'COMPLETED':
+            return <span className="flex items-center text-green-500"><CheckCircle2 className="mr-2 h-4 w-4" />Completed</span>;
+        case 'FAILED':
+            return <span className="flex items-center text-red-500"><XCircle className="mr-2 h-4 w-4" />Failed</span>;
+        default:
+            return <span className="flex items-center text-gray-500">{status}</span>;
+    }
+  }
 
   return (
     <div className="p-4 h-full overflow-auto">
@@ -68,14 +113,14 @@ const Dashboard = () => {
           <CardTitle>Upload New Document</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col sm:flex-row items-center gap-4">
-          <Input type="file" onChange={handleFileChange} className="flex-1" />
+          <Input type="file" onChange={handleFileChange} className="flex-1" disabled={isUploading} />
           <Button onClick={handleUpload} disabled={isUploading || !file}>
             {isUploading ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <UploadCloud className="mr-2 h-4 w-4" />
             )}
-            {isUploading ? 'Uploading...' : 'Upload Document'}
+            {isUploading ? 'Starting Upload...' : 'Upload Document'}
           </Button>
         </CardContent>
       </Card>
@@ -86,11 +131,11 @@ const Dashboard = () => {
           {[...Array(3)].map((_, i) => (
             <Card key={i} className="animate-pulse">
               <CardHeader>
-                <div className="h-6 bg-gray-200 rounded w-3/4 mb-2"></div>
+                <div className="h-6 bg-gray-300 dark:bg-gray-700 rounded w-3/4 mb-2"></div>
               </CardHeader>
               <CardContent>
-                <div className="h-4 bg-gray-200 rounded w-1/2 mb-1"></div>
-                <div className="h-4 bg-gray-200 rounded w-1/3"></div>
+                <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded w-1/2 mb-4"></div>
+                <div className="h-10 bg-gray-300 dark:bg-gray-700 rounded w-full"></div>
               </CardContent>
             </Card>
           ))}
@@ -102,15 +147,15 @@ const Dashboard = () => {
           {documents.map((doc) => (
             <Card key={doc.id}>
               <CardHeader>
-                <CardTitle className="text-lg">{doc.fileName}</CardTitle>
+                <CardTitle className="text-lg truncate" title={doc.fileName}>{doc.fileName}</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-sm text-muted-foreground">Status: {doc.status}</p>
+                <div className="text-sm text-muted-foreground mb-1">Status: {renderStatus(doc.status)}</div>
                 <p className="text-sm text-muted-foreground">
                   Uploaded: {new Date(doc.uploadDate).toLocaleDateString()}
                 </p>
-                <Link to={`/chat/${doc.id}`}>
-                  <Button variant="outline" className="mt-4 w-full">
+                <Link to={`/chat/${doc.id}`} onClick={(e) => doc.status !== 'COMPLETED' && e.preventDefault()}>
+                  <Button variant="outline" className="mt-4 w-full" disabled={doc.status !== 'COMPLETED'}>
                     <MessageSquare className="mr-2 h-4 w-4" /> Chat with Document
                   </Button>
                 </Link>

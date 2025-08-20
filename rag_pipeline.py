@@ -8,7 +8,7 @@ from typing import List, Dict, Optional
 from datetime import datetime
 from huggingface_hub import InferenceClient
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyPDFLoader, TextLoader
+from langchain_community.document_loaders import PyMuPDFLoader, TextLoader
 from sentence_transformers import SentenceTransformer
 import chromadb
 import numpy as np
@@ -134,7 +134,7 @@ class RAGPipeline:
         try:
             # Load document
             if file_path.endswith('.pdf'):
-                loader = PyPDFLoader(file_path)
+                loader = PyMuPDFLoader(file_path)
             elif file_path.endswith('.txt'):
                 loader = TextLoader(file_path, encoding='utf-8')
             else:
