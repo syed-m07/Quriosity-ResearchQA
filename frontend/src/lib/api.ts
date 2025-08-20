@@ -81,7 +81,7 @@ export const deleteMyAccount = () => api.delete('/users/me');
 
 
 // Documents
-export const getDocuments = () => api.get<Document[]>('/documents');
+export const getDocuments = () => api.get<Document[]>('/documents', { params: { '_': new Date().getTime() } }); // cache busting
 export const uploadDocument = (file: File) => {
   const formData = new FormData();
   formData.append('file', file);
@@ -89,6 +89,7 @@ export const uploadDocument = (file: File) => {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
 };
+export const deleteDocument = (id: number) => api.delete(`/documents/${id}`);
 
 // QA
 export const askQuestion = (qaRequest: QaRequest) => api.post<QaResponse>('/qa/ask', qaRequest);

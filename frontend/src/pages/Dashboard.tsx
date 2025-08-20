@@ -1,19 +1,29 @@
-import { useState, useEffect, useRef } from 'react';
-import { getDocuments, uploadDocument } from '@/lib/api';
+import { useState, useEffect } from 'react';
+import { deleteDocument, getDocuments, uploadDocument } from '@/lib/api';
 import { Document } from '@/types/document';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, UploadCloud, MessageSquare, CheckCircle2, XCircle } from 'lucide-react';
+import { Loader2, UploadCloud, MessageSquare, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 
 const Dashboard = () => {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isLoadingDocs, setIsLoadingDocs] = useState(true);
-  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchDocuments = async (isBackground = false) => {
     if (!isBackground) {
@@ -21,7 +31,7 @@ const Dashboard = () => {
     }
     try {
       const response = await getDocuments();
-      setDocuments([...response.data]);
+      setDocuments(response.data);
     } catch (error) {
       console.error('Failed to fetch documents:', error);
       if (!isBackground) {
@@ -39,27 +49,14 @@ const Dashboard = () => {
   }, []);
 
   useEffect(() => {
-    const isProcessing = documents.some(doc => doc.status === 'PROCESSING');
-
-    if (isProcessing && !pollingRef.current) {
-      // Start polling
-      pollingRef.current = setInterval(() => {
-        console.log("Polling for document status...");
-        fetchDocuments(true); // Fetch in the background
+    const isProcessing = documents.some(doc => doc.status === 'PROCESSING' || doc.status === 'UPLOADING');
+    if (isProcessing) {
+      const intervalId = setInterval(() => {
+        fetchDocuments(true); // Poll in the background
       }, 5000); // Poll every 5 seconds
-    } else if (!isProcessing && pollingRef.current) {
-      // Stop polling
-      console.log("Stopping polling.");
-      clearInterval(pollingRef.current);
-      pollingRef.current = null;
-    }
 
-    // Cleanup on unmount
-    return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-      }
-    };
+      return () => clearInterval(intervalId); // Cleanup on re-render or unmount
+    }
   }, [documents]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -91,8 +88,21 @@ const Dashboard = () => {
     }
   };
 
+  const handleDelete = async (documentId: number) => {
+    try {
+      await deleteDocument(documentId);
+      setDocuments((prevDocs) => prevDocs.filter((doc) => doc.id !== documentId));
+      toast.success('Document deleted successfully!');
+    } catch (error) {
+      console.error('Failed to delete document:', error);
+      toast.error('Failed to delete document. Please try again.');
+    }
+  };
+
   const renderStatus = (status: Document['status']) => {
     switch (status) {
+        case 'UPLOADING':
+            return <span className="flex items-center text-gray-500"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Uploading</span>;
         case 'PROCESSING':
             return <span className="flex items-center text-blue-500"><Loader2 className="mr-2 h-4 w-4 animate-spin" />Processing</span>;
         case 'COMPLETED':
@@ -146,8 +156,30 @@ const Dashboard = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {documents.map((doc) => (
             <Card key={doc.id}>
-              <CardHeader>
+              <CardHeader className="flex flex-row items-start justify-between">
                 <CardTitle className="text-lg truncate" title={doc.fileName}>{doc.fileName}</CardTitle>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="ghost" size="icon">
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This action cannot be undone. This will permanently delete the
+                        document and all associated chat history.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => handleDelete(doc.id)} className={buttonVariants({ variant: "destructive" })}>
+                        Delete
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </CardHeader>
               <CardContent>
                 <div className="text-sm text-muted-foreground mb-1">Status: {renderStatus(doc.status)}</div>

@@ -1,8 +1,7 @@
 package com.researchrag.backend.documentapi.controller;
 
 import com.researchrag.backend.documentapi.dto.DocumentMetadataDto;
-import com.researchrag.backend.documentapi.dto.QueryRequest;
-import com.researchrag.backend.documentapi.dto.QueryResponse;
+import com.researchrag.backend.documentapi.dto.StatusUpdateRequest;
 import com.researchrag.backend.documentapi.service.DocumentService;
 import com.researchrag.backend.userapi.user.User;
 import lombok.RequiredArgsConstructor;
@@ -48,6 +47,24 @@ public class DocumentController {
         } catch (Exception e) {
             logger.error("Unexpected error during file upload: " + e.getMessage(), e);
             return new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteDocument(@PathVariable Long id, @AuthenticationPrincipal User user) {
+        documentService.deleteDocument(id, user);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/callback/status")
+    public ResponseEntity<Void> updateStatus(@RequestBody StatusUpdateRequest request) {
+        try {
+            logger.info("Received status update callback: {}", request);
+            documentService.updateDocumentStatus(request.getDocumentId(), request.getStatus(), request.getPythonDocumentId());
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            logger.error("Error processing status update callback: " + e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 }

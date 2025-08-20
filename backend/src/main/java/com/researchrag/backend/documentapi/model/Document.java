@@ -20,6 +20,7 @@ public class Document {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     private String fileName;
+    private String storageFileName; // The unique name of the file stored on the server
     private String contentType;
     private Long size; // in bytes
     @Enumerated(EnumType.STRING)

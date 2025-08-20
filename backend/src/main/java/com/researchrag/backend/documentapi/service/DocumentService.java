@@ -1,33 +1,34 @@
 package com.researchrag.backend.documentapi.service;
 
-import com.researchrag.backend.documentapi.dto.DocumentMetadataDto;
-import com.researchrag.backend.documentapi.dto.PythonUploadResponse;
-import com.researchrag.backend.documentapi.dto.QueryRequest;
-import com.researchrag.backend.documentapi.dto.QueryResponse;
-import com.researchrag.backend.documentapi.dto.PythonQueryRequest;
+import com.researchrag.backend.documentapi.dto.*;
 import com.researchrag.backend.documentapi.model.Document;
 import com.researchrag.backend.documentapi.model.DocumentStatus;
 import com.researchrag.backend.documentapi.repo.DocumentRepository;
+import com.researchrag.backend.qaapi.repo.QaInteractionRepository;
 import com.researchrag.backend.userapi.user.User;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.MediaType;
-import org.springframework.http.client.MultipartBodyBuilder;
-import org.springframework.web.reactive.function.BodyInserters;
 
+import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -37,8 +38,11 @@ import java.util.stream.Collectors;
 public class DocumentService {
 
     private static final Logger logger = LoggerFactory.getLogger(DocumentService.class);
+    private static final String UPLOAD_DIR = "backend/temp-uploads/";
+    public static final String PROCESSING_QUEUE = "doc-processing-queue";
 
     private final DocumentRepository documentRepository;
+    private final QaInteractionRepository qaInteractionRepository;
     private final WebClient.Builder webClientBuilder;
     private final RedisTemplate<String, String> redisTemplate;
     private final ObjectMapper objectMapper;
@@ -62,64 +66,109 @@ public class DocumentService {
     }
 
     public DocumentMetadataDto uploadAndProcessDocument(MultipartFile file, User user) throws IOException {
+        // 1. Save file to a temporary local directory
+        File uploadDir = new File(UPLOAD_DIR);
+        if (!uploadDir.exists()) {
+            uploadDir.mkdirs();
+        }
+        String uniqueFileName = UUID.randomUUID().toString() + "_" + file.getOriginalFilename();
+        Path filePath = Paths.get(UPLOAD_DIR + uniqueFileName);
+        Files.copy(file.getInputStream(), filePath);
+
+        // 2. Create a document record in the database with PROCESSING status
         Document document = Document.builder()
                 .fileName(file.getOriginalFilename())
+                .storageFileName(uniqueFileName)
                 .contentType(file.getContentType())
                 .size(file.getSize())
                 .uploadDate(LocalDateTime.now())
-                .status(DocumentStatus.UPLOADING)
+                .status(DocumentStatus.PROCESSING) // Set status to PROCESSING
                 .user(user)
                 .build();
         final Document savedDocument = documentRepository.save(document);
 
-        // Simulate sending to Python RAG service
-        // In a real scenario, you would send the file content here
-        // For now, we'll just update the status after a simulated call
-        WebClient webClient = webClientBuilder.baseUrl(ragServiceBaseUrl).build();
-
-        // Prepare multipart form data
-        MultipartBodyBuilder bodyBuilder = new MultipartBodyBuilder();
-        bodyBuilder.part("file", file.getBytes()).filename(file.getOriginalFilename()); // Assuming Python expects a field named 'file'
-
-        PythonUploadResponse pythonResponse = null;
+        // 3. Create a job payload and push it to the Redis queue
         try {
-            pythonResponse = webClient.post()
-                    .uri("/upload")
-                    .contentType(MediaType.MULTIPART_FORM_DATA)
-                    .body(BodyInserters.fromMultipartData(bodyBuilder.build()))
-                    .retrieve()
-                    .bodyToMono(PythonUploadResponse.class)
-                    .block(); // This is the blocking call
-        } catch (Exception e) { // Catch a general Exception for now to see what's happening
-            logger.error("Failed to communicate with Python RAG service during upload: " + e.getMessage(), e);
+            ProcessingJobDto job = new ProcessingJobDto(savedDocument.getId(), filePath.toAbsolutePath().toString());
+            String jobJson = objectMapper.writeValueAsString(job);
+            redisTemplate.opsForList().leftPush(PROCESSING_QUEUE, jobJson);
+            logger.info("Enqueued document {} for processing.", savedDocument.getId());
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to serialize processing job for document id: {}", savedDocument.getId(), e);
+            // If queuing fails, mark document as FAILED
             savedDocument.setStatus(DocumentStatus.FAILED);
             documentRepository.save(savedDocument);
-            throw new RuntimeException("Failed to process document with RAG service.", e);
+            // Clean up the saved file
+            Files.delete(filePath);
+            throw new RuntimeException("Could not enqueue document for processing.", e);
         }
 
-        if (pythonResponse != null && pythonResponse.getDocument_id() != null) {
-            savedDocument.setStatus(DocumentStatus.COMPLETED);
-            savedDocument.setPythonDocumentId(pythonResponse.getDocument_id());
-            documentRepository.save(savedDocument);
-        } else {
-            savedDocument.setStatus(DocumentStatus.FAILED);
-            documentRepository.save(savedDocument);
-            throw new RuntimeException("Failed to get document_id from Python RAG service.");
-        }
-
+        // 4. Return immediately to the user
         return DocumentMetadataDto.builder()
                 .id(savedDocument.getId())
                 .fileName(savedDocument.getFileName())
                 .uploadDate(savedDocument.getUploadDate())
                 .status(savedDocument.getStatus())
-                .pythonDocumentId(savedDocument.getPythonDocumentId()) // Now this should be populated
                 .build();
     }
+
+    public void updateDocumentStatus(Long documentId, DocumentStatus status, String pythonDocumentId) {
+        Document document = documentRepository.findById(documentId)
+                .orElseThrow(() -> new RuntimeException("Document not found with ID: " + documentId));
+
+        document.setStatus(status);
+        if (pythonDocumentId != null) {
+            document.setPythonDocumentId(pythonDocumentId);
+        }
+        documentRepository.save(document);
+        logger.info("Updated status for document {} to {}", documentId, status);
+    }
+
+    @Transactional
+    public void deleteDocument(Long documentId, User user) {
+        Document document = documentRepository.findById(documentId)
+                .orElseThrow(() -> new RuntimeException("Document not found with ID: " + documentId));
+
+        if (!document.getUser().getId().equals(user.getId())) {
+            throw new AccessDeniedException("You do not have permission to delete this document.");
+        }
+
+        // Delete associated Q&A history
+        qaInteractionRepository.deleteByDocumentId(documentId);
+
+        // Delete from Python RAG service
+        if (document.getPythonDocumentId() != null && !document.getPythonDocumentId().isBlank()) {
+            try {
+                webClientBuilder.baseUrl(ragServiceBaseUrl).build().delete()
+                        .uri("/documents/" + document.getPythonDocumentId())
+                        .retrieve()
+                        .toBodilessEntity()
+                        .block(); // Consider making this async in a real-world scenario
+                logger.info("Successfully deleted document {} from RAG service.", document.getPythonDocumentId());
+            } catch (Exception e) {
+                logger.error("Failed to delete document {} from RAG service. This might require manual cleanup.", document.getPythonDocumentId(), e);
+            }
+        }
+
+        // Delete the physical file
+        try {
+            Path filePath = Paths.get(UPLOAD_DIR + document.getStorageFileName());
+            if (Files.exists(filePath)) {
+                Files.delete(filePath);
+            }
+        } catch (IOException e) {
+            logger.error("Failed to delete physical file for document id: {}", documentId, e);
+            // Decide if you want to throw an exception or just log the error
+        }
+
+        // Delete the document record
+        documentRepository.delete(document);
+    }
+
 
     public QueryResponse queryDocuments(QueryRequest queryRequest, User user) {
         String cacheKey = generateCacheKey(queryRequest.getDocumentId(), queryRequest.getQuestion());
 
-        // Try to retrieve from cache
         String cachedResponse = redisTemplate.opsForValue().get(cacheKey);
         if (cachedResponse != null) {
             try {
@@ -127,15 +176,16 @@ public class DocumentService {
                 return objectMapper.readValue(cachedResponse, QueryResponse.class);
             } catch (JsonProcessingException e) {
                 logger.error("Error deserializing cached response for key {}: {}", cacheKey, e.getMessage());
-                // Fall through to actual service call if deserialization fails
             }
         }
 
-        // Retrieve the Document entity to get the Python-generated documentId
         Document document = documentRepository.findById(queryRequest.getDocumentId())
                 .orElseThrow(() -> new RuntimeException("Document not found with ID: " + queryRequest.getDocumentId()));
 
-        // Create a new QueryRequest for the Python service with the correct document_id
+        if (document.getStatus() != DocumentStatus.COMPLETED) {
+            throw new IllegalStateException("Document is not yet processed. Current status: " + document.getStatus());
+        }
+
         PythonQueryRequest pythonQueryRequest = PythonQueryRequest.builder()
                 .question(queryRequest.getQuestion())
                 .document_id(document.getPythonDocumentId())
@@ -143,17 +193,14 @@ public class DocumentService {
 
         WebClient webClient = webClientBuilder.baseUrl(ragServiceBaseUrl).build();
         Mono<QueryResponse> responseMono = webClient.post()
-                .uri("/ask") // Assuming /ask is the query endpoint
+                .uri("/ask")
                 .bodyValue(pythonQueryRequest)
                 .retrieve()
                 .bodyToMono(QueryResponse.class)
-                .doOnError(error -> {
-                    logger.error("Error querying RAG service: " + error.getMessage(), error);
-                });
+                .doOnError(error -> logger.error("Error querying RAG service: " + error.getMessage(), error));
 
-        QueryResponse queryResponse = responseMono.block(); // Block for testing/simplicity, in a real app consider reactive flow
+        QueryResponse queryResponse = responseMono.block();
 
-        // Cache the response
         if (queryResponse != null) {
             try {
                 String jsonResponse = objectMapper.writeValueAsString(queryResponse);
