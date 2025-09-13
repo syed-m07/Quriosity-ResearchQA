@@ -7,7 +7,7 @@ const Index = () => {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground">
-      <h1 className="text-5xl font-bold mb-6">Welcome to ResearchRAG</h1>
+      <h1 className="text-5xl font-bold mb-6">Welcome to Quriosity</h1>
       <p className="text-xl text-muted-foreground mb-8 text-center max-w-2xl">
         Upload your research papers and chat with them. Get instant answers and insights from your documents.
       </p>

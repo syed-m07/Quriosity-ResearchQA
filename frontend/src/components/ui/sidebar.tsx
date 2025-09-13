@@ -32,7 +32,7 @@ export function Sidebar() {
   const sidebarContent = (
     <div className="flex flex-col h-full">
       <div className="p-4 border-b">
-        <h1 className={`text-2xl font-bold ${isCollapsed ? 'hidden' : 'block'}`}>ResearchRAG</h1>
+        <h1 className={`text-2xl font-bold ${isCollapsed ? 'hidden' : 'block'}`}>Quriosity</h1>
       </div>
       <nav className="flex-1 px-2 py-4 space-y-2">
         {navItems.map((item) => (

@@ -1,8 +1,8 @@
-# ResearchQ&ABot
+# QRiosity
 
 ## Project Overview
 
-ResearchQ&ABot is a full-stack application designed to facilitate research by providing a question-and-answer system powered by Retrieval Augmented Generation (RAG). It features a robust backend for managing documents and user interactions, a dynamic frontend for an intuitive user experience, and a Python-based RAG pipeline for intelligent information retrieval and response generation.
+QRiosity is a full-stack application designed to facilitate research by providing a question-and-answer system powered by Retrieval Augmented Generation (RAG). It features a robust backend for managing documents and user interactions, a dynamic frontend for an intuitive user experience, and a Python-based RAG pipeline for intelligent information retrieval and response generation.
 
 ## Features
 
@@ -45,7 +45,7 @@ The project is organized into three main parts:
 
 ## Setup and Installation
 
-To get the ResearchQ&ABot up and running on your local machine, follow these steps:
+To get the QRiosity up and running on your local machine, follow these steps:
 
 ### Prerequisites
 
