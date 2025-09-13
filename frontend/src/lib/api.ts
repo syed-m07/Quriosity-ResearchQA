@@ -5,7 +5,7 @@ import { QaRequest, QaResponse, QaHistoryResponse } from '@/types/chat';
 import { UpdateUserRequest, ChangePasswordRequest, User } from '@/types/auth';
 
 
-const API_URL = 'http://localhost:8081/api/v1';
+export const API_URL = 'http://localhost:8081/api/v1';
 
 const api = axios.create({
   baseURL: API_URL,

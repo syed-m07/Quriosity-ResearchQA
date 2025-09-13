@@ -190,7 +190,7 @@ class RAGPipeline:
                     "word_count": len(text.split()),
                     "char_count": len(text),
                     "has_math": bool(re.search(r'[∫∑∂αβγδε]|\$.*?\$|\\[a-zA-Z]+', text)),
-                    "has_figure_ref": bool(re.search(r'Figure \d+|Fig\. \d+|Table \d+', text, re.IGNORECASE)),
+                    "has_figure_ref": bool(re.search(r'Figure \d+|Fig\\. \d+|Table \d+', text, re.IGNORECASE)),
                     "section_type": self._detect_section_type(text)
                 }
                 metadatas.append(metadata)

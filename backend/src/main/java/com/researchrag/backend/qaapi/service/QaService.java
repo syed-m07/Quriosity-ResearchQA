@@ -81,13 +81,14 @@ public class QaService {
                 });
 
         QueryResponse queryResponse = responseMono.block(); // Block for testing/simplicity, in a real app consider reactive flow
+        final String answerText = (queryResponse != null) ? queryResponse.getAnswer() : null;
 
         // Save interaction to DB
         QaInteraction qaInteraction = QaInteraction.builder()
                 .user(user)
                 .document(document)
                 .question(qaRequest.getQuestion())
-                .answer(queryResponse != null ? queryResponse.getAnswer() : "")
+                .answer(answerText != null ? answerText : "")
                 .timestamp(LocalDateTime.now())
                 .build();
         qaInteractionRepository.save(qaInteraction);
@@ -105,7 +106,7 @@ public class QaService {
 
         // Map QueryResponse to QaResponse (they are structurally similar)
         return QaResponse.builder()
-                .answer(queryResponse != null ? queryResponse.getAnswer() : null)
+                .answer(answerText)
                 .sources(queryResponse != null ? queryResponse.getSources() : null)
                 .success(queryResponse != null ? queryResponse.getSuccess() : false)
                 .document_id(queryResponse != null ? queryResponse.getDocument_id() : null)

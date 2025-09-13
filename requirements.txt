@@ -12,3 +12,4 @@ transformers
 PyMuPDF
 redis
 requests
+httpx
