@@ -2,6 +2,7 @@ import axios, { AxiosError } from 'axios';
 import { LoginRequest, RegisterRequest, RefreshTokenResponse, AuthResponse } from '@/types/auth';
 import { Document } from '@/types/document';
 import { QaRequest, QaResponse, QaHistoryResponse } from '@/types/chat';
+import { FacultySummary } from '@/types/faculty';
 import { UpdateUserRequest, ChangePasswordRequest, User } from '@/types/auth';
 
 
@@ -94,3 +95,28 @@ export const deleteDocument = (id: number) => api.delete(`/documents/${id}`);
 // QA
 export const askQuestion = (qaRequest: QaRequest) => api.post<QaResponse>('/qa/ask', qaRequest);
 export const getHistory = (documentId: number) => api.get<QaHistoryResponse[]>(`/qa/history/${documentId}`);
+
+// Publications API
+export const uploadFacultyList = async (file: File): Promise<FacultySummary[]> => {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await api.post('/publications/upload', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return response.data;
+};
+
+export const getFacultyProfile = async (facultyId: string): Promise<FacultyProfile> => {
+  const response = await api.get(`/publications/profile/${facultyId}`);
+  return response.data;
+};
+
+export const getFacultyArticles = async (facultyId: string, page: number, size: number): Promise<Article[]> => {
+  const response = await api.get(`/publications/articles/${facultyId}`, {
+    params: { page, size },
+  });
+  return response.data;
+};

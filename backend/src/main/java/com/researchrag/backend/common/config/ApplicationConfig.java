@@ -44,9 +44,4 @@ public class ApplicationConfig {
         return new BCryptPasswordEncoder();
     }
 
-    @Bean
-    public WebClient.Builder webClientBuilder() {
-        return WebClient.builder();
-    }
-
 }

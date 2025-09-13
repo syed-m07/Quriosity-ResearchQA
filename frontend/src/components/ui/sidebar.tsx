@@ -10,6 +10,7 @@ import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 
 const navItems = [
   { name: 'Dashboard', icon: Home, path: '/dashboard' },
+  { name: 'Faculty Profiles', icon: FileText, path: '/faculty-profiles' },
   { name: 'Settings', icon: Settings, path: '/settings' },
 ];
 

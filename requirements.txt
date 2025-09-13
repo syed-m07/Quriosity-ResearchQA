@@ -13,3 +13,7 @@ PyMuPDF
 redis
 requests
 httpx
+pandas
+openpyxl
+google-search-results
+python-docx

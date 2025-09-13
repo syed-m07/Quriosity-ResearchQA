@@ -6,6 +6,7 @@ import os
 import uuid
 import tempfile
 from rag_pipeline import RAGPipeline
+from publications_pipeline import PublicationsPipeline
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -105,6 +106,30 @@ async def ask_question(
     except Exception as e:
         raise HTTPException(500, str(e))
 
+@app.post("/publications/upload")
+async def upload_faculty_list(file: UploadFile = File(...)):
+    if not file.filename.endswith(('.xlsx', '.csv')):
+        raise HTTPException(400, "Only .xlsx or .csv files allowed")
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{file.filename}") as tmp:
+            content = await file.read()
+            tmp.write(content)
+            tmp_path = tmp.name
+        
+        publications_pipeline = PublicationsPipeline()
+        processed_data = publications_pipeline.process_faculty_excel(tmp_path)
+        
+        return processed_data
+
+    except Exception as e:
+        raise HTTPException(500, f"An error occurred: {str(e)}")
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+
 # === Additional Endpoints ===
 @app.get("/documents", response_model=List[str])
 async def list_documents():
@@ -139,4 +164,4 @@ async def load_model(request: ModelLoadRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000, limit_max_body_size=100 * 1024 * 1024, timeout_keep_alive=600)

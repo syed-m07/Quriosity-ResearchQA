@@ -9,6 +9,8 @@ import RegisterPage from '@/pages/Register';
 import DashboardPage from '@/pages/Dashboard';
 import ChatPage from '@/pages/Chat';
 import SettingsPage from '@/pages/Settings';
+import FacultyPage from '@/pages/Faculty';
+import FacultyDetailsPage from '@/pages/FacultyDetails';
 import NotFound from '@/pages/NotFound';
 import DemoNotice from '@/components/DemoNotice';
 
@@ -52,6 +54,26 @@ function App() {
             }
           />
           <Route path="*" element={<NotFound />} />
+          <Route
+            path="/faculty-profiles"
+            element={
+              <ProtectedRoute>
+                <LayoutWrapper>
+                  <FacultyPage />
+                </LayoutWrapper>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/faculty-profiles/:facultyId"
+            element={
+              <ProtectedRoute>
+                <LayoutWrapper>
+                  <FacultyDetailsPage />
+                </LayoutWrapper>
+              </ProtectedRoute>
+            }
+          />
         </Routes>
       </AuthProvider>
       <Toaster />
