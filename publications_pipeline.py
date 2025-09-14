@@ -67,7 +67,7 @@ class PublicationsPipeline:
         print(f"Could not find a unique author_id for {name} using any strategy.")
         return None
 
-    def _fetch_and_parse_profile(self, author_id: str) -> dict | None:
+    def _fetch_and_parse_profile(self, author_id: str, articles_limit: int = None) -> dict | None:
         all_articles = []
         params = {
             "api_key": self.serpapi_api_key,
@@ -83,15 +83,18 @@ class PublicationsPipeline:
         author_info = first_page.get("author", {})
         cited_by_info = first_page.get("cited_by", {})
         all_articles.extend(first_page.get("articles", []))
-        
+
         pagination_data = first_page.get("serpapi_pagination")
-        params.pop("cstart", None) # Ensure old param is not present
+        params.pop("cstart", None)
 
         while pagination_data and "next" in pagination_data:
+            if articles_limit and len(all_articles) >= articles_limit:
+                print(f"Reached article limit of {articles_limit}. Stopping pagination.")
+                break
             try:
                 next_url = pagination_data["next"]
                 parsed_url = urlparse(next_url)
-                start_list = parse_qs(parsed_url.query).get("start") # Correct parameter is 'start'
+                start_list = parse_qs(parsed_url.query).get("start")
                 if not start_list:
                     print("'start' parameter not found in next page URL. Ending pagination.")
                     break
@@ -106,6 +109,9 @@ class PublicationsPipeline:
             if "articles" in next_page:
                 all_articles.extend(next_page.get("articles", []))
             pagination_data = next_page.get("serpapi_pagination")
+
+        if articles_limit:
+            all_articles = all_articles[:articles_limit]
 
         print(f"Fetched a total of {len(all_articles)} articles.")
 
@@ -132,7 +138,7 @@ class PublicationsPipeline:
         
         return {"author_profile": {"name": author_info.get("name"), "affiliations": author_info.get("affiliations"), "email": author_info.get("email"), "interests": parsed_interests, "thumbnail": author_info.get("thumbnail")}, "citation_metrics": {"total_citations": total_citations, "h_index": h_index, "i10_index": i10_index}, "articles": parsed_articles}
 
-    def process_faculty_excel(self, file_path: str):
+    def process_faculty_excel(self, file_path: str, articles_limit: int = None):
         df = pd.read_excel(file_path)
         processed_faculty_list = []
         for index, row in df.iterrows():
@@ -143,7 +149,7 @@ class PublicationsPipeline:
             print(f"--- Processing faculty: {name} ---")
             author_id = self._find_author_id(name, university)
             if author_id:
-                full_profile_data = self._fetch_and_parse_profile(author_id)
+                full_profile_data = self._fetch_and_parse_profile(author_id, articles_limit)
                 if full_profile_data:
                     full_profile_data["faculty_id"] = faculty_id
                     full_profile_data["processed_at"] = pd.Timestamp.now().isoformat()

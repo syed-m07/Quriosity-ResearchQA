@@ -1,4 +1,11 @@
 
+export interface FacultyUploadBatch {
+  id: number;
+  fileName: string;
+  uploadDate: string;
+  facultyCount: number;
+}
+
 export interface FacultySummary {
   faculty_id: string;
   name: string;

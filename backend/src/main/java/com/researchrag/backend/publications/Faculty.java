@@ -13,7 +13,7 @@ public class Faculty {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false)
     private String facultyId;
 
     @Column(nullable = false)
@@ -21,7 +21,7 @@ public class Faculty {
 
     private String affiliations;
 
-    @Column(unique = true)
+    @Column
     private String googleScholarId;
 
     @ElementCollection
@@ -39,4 +39,8 @@ public class Faculty {
 
     @OneToMany(mappedBy = "faculty", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Publication> publications;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "batch_id")
+    private FacultyUploadBatch facultyUploadBatch;
 }

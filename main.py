@@ -107,7 +107,7 @@ async def ask_question(
         raise HTTPException(500, str(e))
 
 @app.post("/publications/upload")
-async def upload_faculty_list(file: UploadFile = File(...)):
+async def upload_faculty_list(file: UploadFile = File(...), articles_limit: Optional[int] = Form(None)):
     if not file.filename.endswith(('.xlsx', '.csv')):
         raise HTTPException(400, "Only .xlsx or .csv files allowed")
 
@@ -119,7 +119,7 @@ async def upload_faculty_list(file: UploadFile = File(...)):
             tmp_path = tmp.name
         
         publications_pipeline = PublicationsPipeline()
-        processed_data = publications_pipeline.process_faculty_excel(tmp_path)
+        processed_data = publications_pipeline.process_faculty_excel(tmp_path, articles_limit)
         
         return processed_data
 

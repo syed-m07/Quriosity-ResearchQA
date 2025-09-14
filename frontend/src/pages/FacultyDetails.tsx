@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { getFacultyProfile, getFacultyArticles } from '@/lib/api';
 import { FacultyProfile, Article } from '@/types/faculty';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,11 +8,13 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { ChevronLeft } from 'lucide-react';
 
 const PAGE_SIZE = 20; // Number of articles per page
 
 const FacultyDetailsPage: React.FC = () => {
   const { facultyId } = useParams<{ facultyId: string }>();
+  const navigate = useNavigate();
   const [profile, setProfile] = useState<FacultyProfile | null>(null);
   const [articles, setArticles] = useState<Article[]>([]);
   const [loadingProfile, setLoadingProfile] = useState<boolean>(true);
@@ -40,7 +42,7 @@ const FacultyDetailsPage: React.FC = () => {
     fetchProfile();
   }, [facultyId]);
 
-  const fetchArticles = async (page: number, initialLoad: boolean = false) => {
+  const fetchArticles = async (page: number) => {
     if (!facultyId) return;
     setLoadingArticles(true);
     try {
@@ -70,6 +72,10 @@ const FacultyDetailsPage: React.FC = () => {
 
   return (
     <div className="container mx-auto p-4">
+        <Button variant="outline" size="sm" className="mb-4" onClick={() => navigate(-1)}>
+            <ChevronLeft className="h-4 w-4 mr-2" />
+            Back to Faculty List
+        </Button>
       <Card className="mb-6">
         <CardHeader className="flex flex-row items-center space-x-4">
           <Avatar className="w-20 h-20">

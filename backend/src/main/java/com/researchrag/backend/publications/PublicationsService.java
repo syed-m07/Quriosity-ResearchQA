@@ -3,12 +3,15 @@ package com.researchrag.backend.publications;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.researchrag.backend.publications.dto.FacultySummaryDto;
+import com.researchrag.backend.publications.dto.FacultyUploadBatchDto;
+import com.researchrag.backend.userapi.user.User;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.MultipartBodyBuilder;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -19,6 +22,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -30,26 +34,36 @@ public class PublicationsService {
 
     private final WebClient webClient;
     private final FacultyRepository facultyRepository;
-    private final PublicationRepository publicationRepository;
+    private final FacultyUploadBatchRepository facultyUploadBatchRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${rag.service.base-url:http://localhost:8000}")
     private String pythonApiUrl;
 
-    public PublicationsService(WebClient.Builder webClientBuilder, FacultyRepository facultyRepository, PublicationRepository publicationRepository) {
+    public PublicationsService(WebClient.Builder webClientBuilder, FacultyRepository facultyRepository,
+                               FacultyUploadBatchRepository facultyUploadBatchRepository) {
         this.webClient = webClientBuilder.build();
         this.facultyRepository = facultyRepository;
-        this.publicationRepository = publicationRepository;
+        this.facultyUploadBatchRepository = facultyUploadBatchRepository;
     }
 
     @Transactional
-    public List<FacultySummaryDto> processAndSaveFacultyData(MultipartFile multipartFile) throws IOException {
+    public List<FacultySummaryDto> processAndSaveFacultyData(MultipartFile multipartFile, User user, Integer articlesLimit) throws IOException {
         File tempFile = convertMultiPartToFile(multipartFile);
         List<FacultySummaryDto> processedSummaries = new ArrayList<>();
+
+        FacultyUploadBatch batch = new FacultyUploadBatch();
+        batch.setFileName(multipartFile.getOriginalFilename());
+        batch.setUploadDate(LocalDateTime.now());
+        batch.setUser(user);
+        FacultyUploadBatch savedBatch = facultyUploadBatchRepository.save(batch);
 
         try {
             MultipartBodyBuilder builder = new MultipartBodyBuilder();
             builder.part("file", new FileSystemResource(tempFile));
+            if (articlesLimit != null) {
+                builder.part("articles_limit", articlesLimit);
+            }
 
             Mono<JsonNode> responseMono = webClient.post()
                     .uri(pythonApiUrl + "/publications/upload")
@@ -58,14 +72,14 @@ public class PublicationsService {
                     .retrieve()
                     .bodyToMono(JsonNode.class)
                     .doOnError(error -> System.err.println("### WebClient Error: " + error.getMessage()))
-                    .timeout(Duration.ofSeconds(120)); // Increased timeout for initial processing
+                    .timeout(Duration.ofMinutes(5)); // Increased timeout for potentially long processing
 
             JsonNode responseNode = responseMono.block();
 
             if (responseNode != null && responseNode.isArray()) {
                 for (JsonNode facultyData : responseNode) {
-                    Faculty faculty = saveFacultyProfile(facultyData);
-                    if (faculty != null) { // Check if faculty was saved (not null from saveFacultyProfile)
+                    Faculty faculty = saveFacultyProfile(facultyData, savedBatch);
+                    if (faculty != null) {
                         processedSummaries.add(new FacultySummaryDto(
                                 faculty.getFacultyId(),
                                 faculty.getName(),
@@ -82,23 +96,20 @@ public class PublicationsService {
         return processedSummaries;
     }
 
-    private Faculty saveFacultyProfile(JsonNode facultyData) {
+    private Faculty saveFacultyProfile(JsonNode facultyData, FacultyUploadBatch batch) {
         String facultyId = facultyData.path("faculty_id").asText();
-        if (facultyId == null || facultyId.isEmpty()) return null; // Return null if no valid facultyId
+        if (facultyId == null || facultyId.isEmpty()) return null;
 
-        Faculty faculty = facultyRepository.findByFacultyId(facultyId).orElse(new Faculty());
+        Faculty faculty = new Faculty();
         faculty.setFacultyId(facultyId);
+        faculty.setFacultyUploadBatch(batch);
 
         JsonNode profileNode = facultyData.path("author_profile");
         faculty.setName(profileNode.path("name").asText());
         faculty.setAffiliations(profileNode.path("affiliations").asText());
         
         String googleScholarId = facultyData.path("google_scholar_author_id").asText();
-        if (googleScholarId.isEmpty()) {
-            faculty.setGoogleScholarId(null);
-        } else {
-            faculty.setGoogleScholarId(googleScholarId);
-        }
+        faculty.setGoogleScholarId(googleScholarId.isEmpty() ? null : googleScholarId);
 
         faculty.setThumbnail(profileNode.path("thumbnail").asText());
 
@@ -111,7 +122,6 @@ public class PublicationsService {
         faculty.setHIndex(metricsNode.path("h_index").asInt(0));
         faculty.setI10Index(metricsNode.path("i10_index").asInt(0));
 
-        // Clear old publications to prevent duplicates on re-processing
         if (faculty.getPublications() != null) {
             faculty.getPublications().clear();
         } else {
@@ -143,7 +153,6 @@ public class PublicationsService {
         return convFile;
     }
 
-    // New methods for fetching data for frontend
     @Transactional(readOnly = true)
     public Optional<Faculty> getFacultyProfileByFacultyId(String facultyId) {
         return facultyRepository.findByFacultyId(facultyId);
@@ -154,17 +163,50 @@ public class PublicationsService {
         Optional<Faculty> facultyOptional = facultyRepository.findByFacultyId(facultyId);
         if (facultyOptional.isPresent()) {
             Faculty faculty = facultyOptional.get();
-            // Assuming publications are eagerly loaded or fetched via a custom query
-            // For simplicity, if publications are lazily loaded, this might require a custom query in PublicationRepository
-            // For now, we rely on the @OneToMany relationship and assume it's handled by Hibernate
             Pageable pageable = PageRequest.of(page, size);
-            // This will fetch all publications for the faculty and then paginate in memory
-            // For very large number of publications, a custom query in PublicationRepository would be more efficient
             return faculty.getPublications().stream()
                     .skip((long) page * size)
                     .limit(size)
                     .collect(Collectors.toList());
         }
         return List.of();
+    }
+
+    @Transactional(readOnly = true)
+    public List<FacultyUploadBatchDto> getFacultyBatches(User user) {
+        return facultyUploadBatchRepository.findByUserOrderByUploadDateDesc(user).stream()
+                .map(batch -> new FacultyUploadBatchDto(
+                        batch.getId(),
+                        batch.getFileName(),
+                        batch.getUploadDate(),
+                        batch.getFacultyList().size()
+                ))
+                .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public List<FacultySummaryDto> getFacultySummariesForBatch(Long batchId, User user) {
+        FacultyUploadBatch batch = facultyUploadBatchRepository.findById(batchId)
+                .orElseThrow(() -> new RuntimeException("Batch not found"));
+        if (!batch.getUser().getId().equals(user.getId())) {
+            throw new AccessDeniedException("You do not have permission to access this batch.");
+        }
+        return facultyRepository.findByFacultyUploadBatchId(batchId).stream()
+                .map(faculty -> new FacultySummaryDto(
+                        faculty.getFacultyId(),
+                        faculty.getName(),
+                        faculty.getPublications().size()
+                ))
+                .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public void deleteFacultyBatch(Long batchId, User user) {
+        FacultyUploadBatch batch = facultyUploadBatchRepository.findById(batchId)
+                .orElseThrow(() -> new RuntimeException("Batch not found"));
+        if (!batch.getUser().getId().equals(user.getId())) {
+            throw new AccessDeniedException("You do not have permission to delete this batch.");
+        }
+        facultyUploadBatchRepository.deleteById(batchId);
     }
 }

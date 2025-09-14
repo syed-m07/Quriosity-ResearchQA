@@ -1,9 +1,8 @@
 import axios, { AxiosError } from 'axios';
-import { LoginRequest, RegisterRequest, RefreshTokenResponse, AuthResponse } from '@/types/auth';
+import { LoginRequest, RegisterRequest, RefreshTokenResponse, AuthResponse, UpdateUserRequest, ChangePasswordRequest, User } from '@/types/auth';
 import { Document } from '@/types/document';
 import { QaRequest, QaResponse, QaHistoryResponse } from '@/types/chat';
-import { FacultySummary } from '@/types/faculty';
-import { UpdateUserRequest, ChangePasswordRequest, User } from '@/types/auth';
+import { FacultySummary, FacultyProfile, Article, FacultyUploadBatch } from '@/types/faculty';
 
 
 export const API_URL = 'http://localhost:8081/api/v1';
@@ -28,13 +27,12 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
-    const originalRequest = error.config;
+    const originalRequest = error.config as any;
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
       originalRequest._retry = true;
       try {
         const refreshToken = localStorage.getItem('refreshToken');
         if (!refreshToken) {
-          // Redirect to login or handle logout
           window.location.href = '/login';
           return Promise.reject(error);
         }
@@ -50,7 +48,6 @@ api.interceptors.response.use(
         api.defaults.headers.common['Authorization'] = 'Bearer ' + data.access_token;
         return api(originalRequest);
       } catch (refreshError) {
-        // Redirect to login or handle logout
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');
         window.location.href = '/login';
@@ -82,7 +79,7 @@ export const deleteMyAccount = () => api.delete('/users/me');
 
 
 // Documents
-export const getDocuments = () => api.get<Document[]>('/documents', { params: { '_': new Date().getTime() } }); // cache busting
+export const getDocuments = () => api.get<Document[]>('/documents', { params: { '_': new Date().getTime() } });
 export const uploadDocument = (file: File) => {
   const formData = new FormData();
   formData.append('file', file);
@@ -97,9 +94,12 @@ export const askQuestion = (qaRequest: QaRequest) => api.post<QaResponse>('/qa/a
 export const getHistory = (documentId: number) => api.get<QaHistoryResponse[]>(`/qa/history/${documentId}`);
 
 // Publications API
-export const uploadFacultyList = async (file: File): Promise<FacultySummary[]> => {
+export const uploadFacultyList = async (file: File, articlesLimit?: number): Promise<FacultySummary[]> => {
   const formData = new FormData();
   formData.append('file', file);
+  if (articlesLimit) {
+    formData.append('articlesLimit', String(articlesLimit));
+  }
 
   const response = await api.post('/publications/upload', formData, {
     headers: {
@@ -107,6 +107,20 @@ export const uploadFacultyList = async (file: File): Promise<FacultySummary[]> =
     },
   });
   return response.data;
+};
+
+export const getFacultyBatches = async (): Promise<FacultyUploadBatch[]> => {
+  const response = await api.get('/publications/batches');
+  return response.data;
+};
+
+export const getFacultySummariesForBatch = async (batchId: number): Promise<FacultySummary[]> => {
+  const response = await api.get(`/publications/batches/${batchId}/summaries`);
+  return response.data;
+};
+
+export const deleteFacultyBatch = async (batchId: number): Promise<void> => {
+  await api.delete(`/publications/batches/${batchId}`);
 };
 
 export const getFacultyProfile = async (facultyId: string): Promise<FacultyProfile> => {
