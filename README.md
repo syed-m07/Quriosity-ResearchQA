@@ -6,11 +6,18 @@ QRiosity is a full-stack application designed to facilitate research by providin
 
 ## Features
 
-*   **User Authentication & Management:** Secure user registration, login, and profile management.
-*   **Document Management:** Upload, store, and query research documents.
-*   **Intelligent Q&A System:** Ask questions related to uploaded documents and receive accurate, context-aware answers.
-*   **Conversation History:** Maintain a history of Q&A interactions for easy reference.
-*   **Retrieval Augmented Generation (RAG):** Leverages advanced AI models to retrieve relevant information from documents and generate comprehensive answers.
+*   **User Authentication & Management:** Secure user registration, login, profile management (update profile, change password, delete account), and enhanced authentication with refresh tokens and stateful logout.
+*   **Document Management:** Upload, store, and query research documents. Documents are processed asynchronously with real-time status updates. Users can chat with uploaded documents and view conversation history.
+*   **Intelligent Q&A System:** Ask questions related to uploaded documents and receive accurate, context-aware answers. Features include RAG query caching and advanced retrieval with semantic section detection and dynamic boost factors.
+*   **Faculty Profile Management:**
+    *   Upload Excel/CSV files containing faculty names and IDs.
+    *   Fetch and display detailed faculty profiles (affiliations, Google Scholar ID, thumbnail, interests, citation metrics).
+    *   Retrieve and display publications for each faculty member.
+    *   Generate narrative research summaries for faculty publications, with optional filtering by year range.
+    *   Export faculty profiles and their publications to Excel (.xlsx) or Word (.docx) formats.
+    *   Manage uploaded faculty batches (view, delete).
+    *   Handles re-uploads of existing faculty profiles by updating them instead of creating duplicates.
+*   **LLM Integration:** Supports various LLM models, including external services like OpenRouter.ai, Hugging Face Inference API, and local models.
 
 ## Technologies Used
 
@@ -18,8 +25,11 @@ QRiosity is a full-stack application designed to facilitate research by providin
 *   **Language:** Java
 *   **Framework:** Spring Boot
 *   **Build Tool:** Maven
-*   **Security:** Spring Security, JWT (JSON Web Tokens) for authentication
-*   **API:** RESTful API design
+*   **Security:** Spring Security, JWT (JSON Web Tokens) for authentication, refresh tokens, stateful token invalidation.
+*   **API:** RESTful API design, Global Error Handling, Input Validation.
+*   **Data:** Spring Data JPA, MySQL, Redis (for caching and asynchronous job queuing).
+*   **Document Processing:** Apache POI (for Excel/Word export).
+*   **Web Client:** Spring Boot Starter WebFlux (for reactive HTTP client).
 
 ### Frontend
 *   **Language:** TypeScript
@@ -27,13 +37,23 @@ QRiosity is a full-stack application designed to facilitate research by providin
 *   **Build Tool:** Vite
 *   **Styling:** Tailwind CSS
 *   **UI Components:** Shadcn UI
+*   **Routing:** React Router DOM
+*   **State Management:** React Context API
 
-### RAG/AI Component
+### RAG/AI Component (Python)
 *   **Language:** Python
-*   **Libraries:** (Details will depend on `requirements.txt` and `rag_pipeline.py` content, but generally includes libraries for NLP, vector databases, and LLM integration)
+*   **Framework:** FastAPI
+*   **Vector Database:** ChromaDB
+*   **Embeddings:** Sentence Transformers
+*   **LLMs:** Hugging Face Transformers (for local models), Hugging Face Inference Client, OpenRouter.ai API integration.
+*   **Document Loading:** PyMuPDF, Langchain
+*   **Data Processing:** Pandas, OpenPyXL (for Excel/CSV handling), SerpApi (for Google Scholar scraping).
+*   **Queueing:** Redis
+*   **Utilities:** `python-dotenv`, `requests`, `httpx`, `python-docx`.
 
 ### Database
-*   (Please specify the database used, e.g., PostgreSQL, MySQL, H2, MongoDB. If not specified, a default embedded database might be used for development.)
+*   **MySQL:** Primary relational database for user data, document metadata, Q&A history, and faculty profiles.
+*   **Redis:** Used for caching RAG query responses and as a message broker for asynchronous document processing.
 
 ## Project Structure
 
@@ -41,7 +61,7 @@ The project is organized into three main parts:
 
 *   `backend/`: Contains the Spring Boot application, handling API endpoints, business logic, and data persistence.
 *   `frontend/`: Contains the React.js application, providing the user interface and interacting with the backend API.
-*   Root Directory (`./`): Contains Python scripts (`main.py`, `rag_pipeline.py`) for the RAG functionalities and project-level configuration files (`requirements.txt`, `.gitignore`).
+*   Root Directory (`./`): Contains Python scripts (`main.py`, `rag_pipeline.py`, `publications_pipeline.py`, `llm_utils.py`, `worker.py`) for the RAG and faculty publication functionalities, along with project-level configuration files (`requirements.txt`, `.gitignore`).
 
 ## Setup and Installation
 
@@ -56,6 +76,8 @@ Ensure you have the following installed:
 *   **Node.js:** Version 18 or higher (includes npm).
 *   **Python:** Version 3.9 or higher.
 *   **pip:** Python package installer.
+*   **MySQL Database:** A running MySQL instance with a database named `research_rag` (or configured otherwise in `application.properties`).
+*   **Redis Server:** A running Redis server (default port 6379).
 
 ### 1. Backend Setup
 
@@ -71,7 +93,7 @@ To run the backend application:
 ```bash
 ./mvnw spring-boot:run
 ```
-The backend will typically run on `http://localhost:8080`.
+The backend will typically run on `http://localhost:8081`.
 
 ### 2. Frontend Setup
 
@@ -98,24 +120,27 @@ Install the required Python packages:
 pip install -r requirements.txt
 ```
 
-You can then run the Python scripts as needed, for example:
+To run the FastAPI application (RAG and Publications API):
 
 ```bash
-python main.py
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
-or
+
+To run the Redis worker for asynchronous document processing:
+
 ```bash
-python rag_pipeline.py
+python worker.py
 ```
-(Specific usage of Python scripts will depend on their implementation.)
 
 ## Usage
 
-Once both the backend and frontend are running, open your web browser and navigate to the frontend URL (e.g., `http://localhost:5173`).
+Once all components (Backend, Frontend, Python FastAPI, Python Worker, MySQL, Redis) are running, open your web browser and navigate to the frontend URL (e.g., `http://localhost:5173`).
 
 *   **Register/Login:** Create a new account or log in with existing credentials.
-*   **Upload Documents:** Use the document management interface to upload your research papers or other relevant documents.
-*   **Ask Questions:** Navigate to the Q&A section and start asking questions. The system will retrieve information from your uploaded documents and provide answers.
+*   **Upload Documents:** Use the dashboard to upload PDF or TXT research documents. They will be processed in the background, and you can track their status.
+*   **Chat with Documents:** Once a document is processed, click "Chat with Document" to ask questions and view conversation history.
+*   **Manage Faculty Profiles:** Navigate to the "Faculty Profiles" section to upload Excel/CSV files of faculty data, view their profiles, generate research summaries, and export reports.
+*   **Manage Account:** Use the "Settings" page to update your profile, change your password, or delete your account.
 
 ## Contributing
 

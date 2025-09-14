@@ -9,5 +9,6 @@ venv/
 chroma_db/
 myenv/
 faculty.xlsx
-
+faculty_details.xlsx
+publicationsummary.md
 facultysummarizer_feature.png

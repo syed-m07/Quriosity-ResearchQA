@@ -106,8 +106,21 @@ public class PublicationsService {
         String facultyId = facultyData.path("faculty_id").asText();
         if (facultyId == null || facultyId.isEmpty()) return null;
 
-        Faculty faculty = new Faculty();
-        faculty.setFacultyId(facultyId);
+        // Try to find an existing faculty by facultyId
+        Optional<Faculty> existingFacultyOptional = facultyRepository.findByFacultyId(facultyId);
+        Faculty faculty;
+
+        if (existingFacultyOptional.isPresent()) {
+            faculty = existingFacultyOptional.get();
+            // Log that an existing faculty is being updated
+            logger.info("Updating existing faculty profile for facultyId: {}", facultyId);
+        } else {
+            faculty = new Faculty();
+            faculty.setFacultyId(facultyId);
+            logger.info("Creating new faculty profile for facultyId: {}", facultyId);
+        }
+
+        // Always associate with the current batch (latest upload)
         faculty.setFacultyUploadBatch(batch);
 
         JsonNode profileNode = facultyData.path("author_profile");
@@ -128,6 +141,8 @@ public class PublicationsService {
         faculty.setHIndex(metricsNode.path("h_index").asInt(0));
         faculty.setI10Index(metricsNode.path("i10_index").asInt(0));
 
+        // Handle publications: clear existing and add new ones from the current upload
+        // This assumes the new upload provides the most up-to-date list of publications
         if (faculty.getPublications() != null) {
             faculty.getPublications().clear();
         } else {
@@ -144,7 +159,7 @@ public class PublicationsService {
                 publication.setYear(articleNode.path("year").asInt(0));
                 publication.setCitations(articleNode.path("citations").asInt(0));
                 publication.setLink(articleNode.path("link").asText());
-                publication.setFaculty(faculty);
+                publication.setFaculty(faculty); // Set the relationship
                 faculty.getPublications().add(publication);
             }
         }
