@@ -134,3 +134,17 @@ export const getFacultyArticles = async (facultyId: string, page: number, size: 
   });
   return response.data;
 };
+
+export const getFacultySummary = async (facultyId: string, fromYear?: number, toYear?: number): Promise<string> => {
+    const response = await api.get(`/publications/summary/${facultyId}`, {
+        params: { fromYear, toYear },
+    });
+    return response.data;
+};
+
+export const exportFacultyProfile = async (facultyId: string, format: 'excel' | 'word') => {
+    return api.get(`/publications/export/${facultyId}`, {
+        params: { format },
+        responseType: 'blob',
+    });
+};

@@ -13,6 +13,7 @@ from sentence_transformers import SentenceTransformer
 import chromadb
 import numpy as np
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+from llm_utils import generate_with_openrouter
 
 class RAGPipeline:
 
@@ -50,7 +51,7 @@ class RAGPipeline:
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
-            separators=["\n\n", "\n", ". ", "! ", "? ", "; ", ", ", " "],
+            separators=["\n", "\n", ". ", "! ", "? ", "; ", ", ", " "],
             keep_separator=True
         )
         
@@ -360,51 +361,42 @@ class RAGPipeline:
         
         return prompt
     
-    async def generate_with_hf(self, prompt: str) -> str:
+    async def generate_answer_with_llm(self, question: str, context_chunks: List[Dict]) -> str:
+        """Generate answer using either HF API or local model"""
+        if not context_chunks:
+            return "No relevant context found."
+        
+        prompt = self.create_research_prompt(question, context_chunks)
+
+        # Use OpenRouter if API key is set
+        if os.getenv("OPENROUTER_API_KEY"):
+            print("Using OpenRouter for inference")
+            try:
+                return await generate_with_openrouter(prompt)
+            except Exception as e:
+                print(f"OpenRouter failed, falling back if possible. Error: {e}")
+
+        # Fallback or primary for HF/local
+        if self.use_hf_inference:
+            try:
+                return await self._generate_with_hf(prompt)
+            except Exception as e:
+                print(f"HF Inference failed, falling back to local. Error: {e}")
+                if self.llm_model or self.generator_pipeline:
+                    return self._generate_locally(prompt)
+                raise RuntimeError("Both OpenRouter and HF Inference failed with no local model fallback.")
+        else:
+            return self._generate_locally(prompt)
+
+    async def _generate_with_hf(self, prompt: str) -> str:
         """Generate response using Hugging Face Inference API"""
-        try:
-            response = self.hf_client.text_generation(
-                prompt,
-                max_new_tokens=500,
-                temperature=0.7,
-                details=True
-            )
-            return response.generated_text
-        except Exception as e:
-            print(f"HF Inference error: {str(e)}")
-            # Fallback to local model if available
-            if self.llm_model or self.generator_pipeline:
-                return self._generate_locally(prompt)
-            raise RuntimeError("Failed to generate with HF Inference and no local fallback")
-
-    async def generate_with_openrouter(self, prompt: str) -> str:
-        """Generate response using OpenRouter.ai API"""
-        api_key = os.getenv("OPENROUTER_API_KEY")
-        if not api_key:
-            raise RuntimeError("OPENROUTER_API_KEY not set in environment")
-        url = "https://openrouter.ai/api/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-        data = {
-            "model": "deepseek/deepseek-r1-0528:free",
-            "messages": [
-                {"role": "user", "content": prompt}
-            ]
-        }
-        try:
-            response = requests.post(url, headers=headers, data=json.dumps(data))
-            response.raise_for_status()
-            result = response.json()
-            # Extract the generated answer
-            return result["choices"][0]["message"]["content"]
-        except Exception as e:
-            print(f"OpenRouter error: {e}")
-            raise RuntimeError("Failed to generate with OpenRouter")
-
-
-
+        response = self.hf_client.text_generation(
+            prompt,
+            max_new_tokens=500,
+            temperature=0.7,
+            details=True
+        )
+        return response.generated_text
 
     def _generate_locally(self, prompt: str) -> str:
         """Generate response using local model"""
@@ -436,93 +428,6 @@ class RAGPipeline:
             print(f"Local generation error: {e}")
             return "I couldn't generate an answer. Please try again."
 
-    async def generate_answer_with_llm(self, question: str, context_chunks: List[Dict]) -> str:
-        """Generate answer using either HF API or local model"""
-        if not context_chunks:
-            return "No relevant context found."
-        
-        prompt = self.create_research_prompt(question, context_chunks)
-
-        # Use OpenRouter if API key is set
-        if os.getenv("OPENROUTER_API_KEY"):
-            print("Using OpenRouter for inference")
-            try:
-                return await self.generate_with_openrouter(prompt)
-            except Exception:
-                pass  # fallback to other methods
-        if self.use_hf_inference:
-            try:
-                return await self.generate_with_hf(prompt)
-            except Exception:
-                if self.llm_model or self.generator_pipeline:
-                    return self._generate_locally(prompt)
-                raise
-        else:
-            return self._generate_locally(prompt)
-
-    
-
-    def generate_answer_simple(self, question: str, context_chunks: List[Dict]) -> str:
-        """Enhanced simple answer generation for research content"""
-        if not context_chunks:
-            return "I couldn't find relevant information in the document to answer your question."
-        
-        # Analyze question type
-        question_lower = question.lower()
-        
-        # Build comprehensive answer
-        answer_parts = []
-        
-        # Check for specific question types and tailor response
-        if any(word in question_lower for word in ['what is', 'define', 'definition']):
-            answer_parts.append("Based on the research paper:")
-        elif any(word in question_lower for word in ['how', 'method', 'approach']):
-            answer_parts.append("The paper describes the following approach:")
-        elif any(word in question_lower for word in ['why', 'reason', 'advantage']):
-            answer_parts.append("According to the research:")
-        else:
-            answer_parts.append("From the academic paper, here are the key findings:")
-        
-        # Process chunks intelligently
-        processed_content = []
-        
-        for chunk in context_chunks[:3]:  # Focus on top 3 most relevant
-            text = chunk["text"]
-            metadata = chunk.get("metadata", {})
-            
-            # Extract key sentences
-            sentences = [s.strip() for s in text.split('.') if len(s.strip()) > 20]
-            
-            # Find most relevant sentences based on question keywords
-            relevant_sentences = []
-            question_words = set(question_lower.split())
-            
-            for sentence in sentences:
-                sentence_words = set(sentence.lower().split())
-                overlap = len(question_words.intersection(sentence_words))
-                if overlap > 0 or len(relevant_sentences) < 2:
-                    relevant_sentences.append(sentence)
-                    if len(relevant_sentences) >= 2:
-                        break
-            
-            if relevant_sentences:
-                content = '. '.join(relevant_sentences)
-                if not content.endswith('.'):
-                    content += '.'
-                processed_content.append(content)
-        
-        # Combine processed content
-        if processed_content:
-            answer_parts.append(' '.join(processed_content))
-        else:
-            # Fallback to first chunk
-            first_chunk = context_chunks[0]["text"]
-            if len(first_chunk) > 300:
-                first_chunk = first_chunk[:300] + "..."
-            answer_parts.append(first_chunk)
-        
-        return ' '.join(answer_parts)
-    
     async def ask_question(self, question: str, document_id: str) -> Dict:
         """Enhanced question answering with better error handling and responses"""
         try:

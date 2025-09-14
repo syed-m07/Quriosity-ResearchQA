@@ -6,11 +6,16 @@ import com.researchrag.backend.publications.dto.FacultyProfileDto;
 import com.researchrag.backend.publications.dto.FacultySummaryDto;
 import com.researchrag.backend.publications.dto.FacultyUploadBatchDto;
 import com.researchrag.backend.userapi.user.User;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -62,6 +67,36 @@ public class PublicationsController {
         return ResponseEntity.noContent().build();
     }
 
+    @GetMapping("/export/{facultyId}")
+    public ResponseEntity<InputStreamResource> exportFacultyProfile(@PathVariable String facultyId, @RequestParam String format) throws IOException {
+        ByteArrayInputStream bis = publicationsService.exportFacultyProfile(facultyId, format);
+        HttpHeaders headers = new HttpHeaders();
+        String fileName = facultyId + "_report." + (format.equalsIgnoreCase("word") ? "docx" : "xlsx");
+        headers.add("Content-Disposition", "attachment; filename=" + fileName);
+
+        MediaType mediaType;
+        if (format.equalsIgnoreCase("word")) {
+            mediaType = MediaType.valueOf("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        } else {
+            mediaType = MediaType.valueOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        }
+
+        return ResponseEntity
+                .ok()
+                .headers(headers)
+                .contentType(mediaType)
+                .body(new InputStreamResource(bis));
+    }
+
+    @GetMapping("/summary/{facultyId}")
+    public ResponseEntity<String> getFacultySummary(
+            @PathVariable String facultyId,
+            @RequestParam(required = false) Integer fromYear,
+            @RequestParam(required = false) Integer toYear) {
+        String summary = publicationsService.getFacultySummary(facultyId, fromYear, toYear);
+        return ResponseEntity.ok(summary);
+    }
+
 
     @GetMapping("/profile/{facultyId}")
     public ResponseEntity<FacultyProfileDto> getFacultyProfile(@PathVariable String facultyId) {
@@ -79,7 +114,8 @@ public class PublicationsController {
                 faculty.getInterests(),
                 faculty.getTotalCitations(),
                 faculty.getHIndex(),
-                faculty.getI10Index()
+                faculty.getI10Index(),
+                faculty.getSummary()
         );
         return ResponseEntity.ok(dto);
     }

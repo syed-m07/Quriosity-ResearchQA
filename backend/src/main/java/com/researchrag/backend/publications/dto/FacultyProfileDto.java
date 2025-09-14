@@ -20,4 +20,5 @@ public class FacultyProfileDto {
     private Integer total_citations;
     private Integer h_index;
     private Integer i10_index;
+    private String summary;
 }

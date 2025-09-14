@@ -55,6 +55,12 @@ class ModelLoadRequest(BaseModel):
     model_name: str
     model_type: Optional[str] = "auto"
 
+class SummarizationRequest(BaseModel):
+    name: str
+    publications: List[dict]
+    from_year: Optional[int] = None
+    to_year: Optional[int] = None
+
 # === Core Endpoints ===
 @app.post("/upload")
 async def upload_file(
@@ -128,6 +134,20 @@ async def upload_faculty_list(file: UploadFile = File(...), articles_limit: Opti
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
+
+@app.post("/publications/summarize")
+async def summarize_publications(request: SummarizationRequest):
+    try:
+        publications_pipeline = PublicationsPipeline()
+        summary = await publications_pipeline.summarize_faculty_publications(
+            name=request.name,
+            publications=request.publications,
+            from_year=request.from_year,
+            to_year=request.to_year
+        )
+        return {"summary": summary}
+    except Exception as e:
+        raise HTTPException(500, f"An error occurred during summarization: {str(e)}")
 
 
 # === Additional Endpoints ===

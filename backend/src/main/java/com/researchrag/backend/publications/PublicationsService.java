@@ -2,8 +2,7 @@ package com.researchrag.backend.publications;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.researchrag.backend.publications.dto.FacultySummaryDto;
-import com.researchrag.backend.publications.dto.FacultyUploadBatchDto;
+import com.researchrag.backend.publications.dto.*;
 import com.researchrag.backend.userapi.user.User;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
@@ -16,8 +15,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -28,23 +29,28 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class PublicationsService {
 
+    private static final Logger logger = LoggerFactory.getLogger(PublicationsService.class);
     private final WebClient webClient;
     private final FacultyRepository facultyRepository;
     private final FacultyUploadBatchRepository facultyUploadBatchRepository;
+    private final ExportService exportService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${rag.service.base-url:http://localhost:8000}")
     private String pythonApiUrl;
 
     public PublicationsService(WebClient.Builder webClientBuilder, FacultyRepository facultyRepository,
-                               FacultyUploadBatchRepository facultyUploadBatchRepository) {
+                               FacultyUploadBatchRepository facultyUploadBatchRepository, ExportService exportService) {
         this.webClient = webClientBuilder.build();
         this.facultyRepository = facultyRepository;
         this.facultyUploadBatchRepository = facultyUploadBatchRepository;
+        this.exportService = exportService;
     }
 
     @Transactional
@@ -208,5 +214,64 @@ public class PublicationsService {
             throw new AccessDeniedException("You do not have permission to delete this batch.");
         }
         facultyUploadBatchRepository.deleteById(batchId);
+    }
+
+    @Transactional
+    public String getFacultySummary(String facultyId, Integer fromYear, Integer toYear) {
+        Faculty faculty = facultyRepository.findByFacultyId(facultyId)
+                .orElseThrow(() -> new RuntimeException("Faculty not found"));
+
+        List<Publication> publicationsToSummarize = faculty.getPublications().stream()
+                .filter(p -> (fromYear == null || (p.getYear() != null && p.getYear() >= fromYear)) && (toYear == null || (p.getYear() != null && p.getYear() <= toYear)))
+                .collect(Collectors.toList());
+
+        List<PublicationDto> publicationDtos = publicationsToSummarize.stream()
+                .map(p -> new PublicationDto(p.getTitle(), p.getAuthors(), p.getPublicationSource(), p.getYear(), p.getCitations(), p.getLink()))
+                .collect(Collectors.toList());
+
+        PythonSummarizationRequest request = PythonSummarizationRequest.builder()
+                .name(faculty.getName())
+                .publications(publicationDtos)
+                .from_year(fromYear)
+                .to_year(toYear)
+                .build();
+
+        try {
+            PythonSummarizationResponse pythonResponse = webClient.post()
+                    .uri(pythonApiUrl + "/publications/summarize")
+                    .bodyValue(request)
+                    .retrieve()
+                    .bodyToMono(PythonSummarizationResponse.class)
+                    .timeout(Duration.ofMinutes(2)) // Add a 2-minute timeout for the LLM call
+                    .block();
+
+            if (pythonResponse != null && pythonResponse.getSummary() != null) {
+                // Cache the summary only if the year range is for all publications
+                if (fromYear == null && toYear == null) {
+                    faculty.setSummary(pythonResponse.getSummary());
+                    facultyRepository.save(faculty);
+                }
+                return pythonResponse.getSummary();
+            }
+            return "Failed to generate summary.";
+        } catch (WebClientResponseException e) {
+            logger.error("Error from Python summarization service: Status {}, Body {}", e.getRawStatusCode(), e.getResponseBodyAsString());
+            throw new RuntimeException("The summarization service failed to process the request. Details: " + e.getResponseBodyAsString());
+        } catch (Exception e) {
+            logger.error("An unexpected error occurred during summarization for facultyId {}: {}", facultyId, e.getMessage());
+            throw new RuntimeException("An unexpected error occurred while generating the summary.");
+        }
+    }
+
+    public ByteArrayInputStream exportFacultyProfile(String facultyId, String format) throws IOException {
+        Faculty faculty = facultyRepository.findByFacultyId(facultyId)
+                .orElseThrow(() -> new RuntimeException("Faculty not found"));
+
+        if ("excel".equalsIgnoreCase(format)) {
+            return exportService.generateExcelReport(faculty);
+        } else if ("word".equalsIgnoreCase(format)) {
+            return exportService.generateWordReport(faculty);
+        }
+        throw new IllegalArgumentException("Invalid export format specified.");
     }
 }

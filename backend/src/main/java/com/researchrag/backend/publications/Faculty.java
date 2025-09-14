@@ -43,4 +43,7 @@ public class Faculty {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "batch_id")
     private FacultyUploadBatch facultyUploadBatch;
+
+    @Column(length = 2000)
+    private String summary;
 }

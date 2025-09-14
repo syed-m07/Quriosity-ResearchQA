@@ -6,6 +6,7 @@ from serpapi import GoogleSearch
 from pathlib import Path
 import time
 from urllib.parse import urlparse, parse_qs
+from llm_utils import generate_with_openrouter
 
 class PublicationsPipeline:
     def __init__(self):
@@ -157,3 +158,25 @@ class PublicationsPipeline:
             else:
                 print(f"Skipping {name} as no profile could be found.")
         return processed_faculty_list
+
+    async def summarize_faculty_publications(self, name: str, publications: list, from_year: int = None, to_year: int = None) -> str:
+        """Generates a narrative summary for a faculty member's publications."""
+        
+        # Filter publications by year range
+        if from_year:
+            publications = [p for p in publications if p.get('year') and p.get('year') >= from_year]
+        if to_year:
+            publications = [p for p in publications if p.get('year') and p.get('year') <= to_year]
+
+        if not publications:
+            return f"Dr. {name} has no publications in the specified period."
+
+        # Construct the prompt
+        publication_titles = "\n".join([f"- {p['title']}" for p in publications])
+        total_pubs = len(publications)
+        
+        prompt = f"""You are a research analyst. Based on the following publication data for Dr. {name}, generate a concise, one-paragraph narrative summary of their research focus and contributions. Mention key themes you identify from the paper titles.\n\nData:\n- Total Publications to Analyze: {total_pubs}\n- Publication Titles:\n{publication_titles}\n\nNarrative Summary:"""
+
+        # Generate summary using the LLM utility
+        summary = await generate_with_openrouter(prompt)
+        return summary
