@@ -246,11 +246,8 @@ public class PublicationsService {
                     .block();
 
             if (pythonResponse != null && pythonResponse.getSummary() != null) {
-                // Cache the summary only if the year range is for all publications
-                if (fromYear == null && toYear == null) {
-                    faculty.setSummary(pythonResponse.getSummary());
-                    facultyRepository.save(faculty);
-                }
+                faculty.setSummary(pythonResponse.getSummary());
+                facultyRepository.save(faculty);
                 return pythonResponse.getSummary();
             }
             return "Failed to generate summary.";
