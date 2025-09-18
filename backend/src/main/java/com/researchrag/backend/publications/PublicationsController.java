@@ -33,7 +33,7 @@ public class PublicationsController {
     @PostMapping("/upload")
     public ResponseEntity<List<FacultySummaryDto>> uploadFacultyList(
             @RequestParam("file") MultipartFile file,
-            @RequestParam(required = false) Integer articlesLimit,
+            @RequestParam(name = "articles_limit", required = false) Integer articlesLimit,
             @AuthenticationPrincipal User user) {
         if (file.isEmpty()) {
             return ResponseEntity.badRequest().build();

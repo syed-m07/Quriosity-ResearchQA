@@ -31,7 +31,6 @@ class RAGPipeline:
         # Initialize configuration
         self.use_hf_inference = use_hf_inference
         self.hf_api_key = hf_api_key or os.getenv("HF_API_KEY")
-        print(f"Loaded HF API Key: {self.hf_api_key}")
         
         if self.use_hf_inference:
             if not self.hf_api_key:

@@ -12,7 +12,6 @@ import SettingsPage from '@/pages/Settings';
 import FacultyPage from '@/pages/Faculty';
 import FacultyDetailsPage from '@/pages/FacultyDetails';
 import NotFound from '@/pages/NotFound';
-import DemoNotice from '@/components/DemoNotice';
 
 function App() {
 

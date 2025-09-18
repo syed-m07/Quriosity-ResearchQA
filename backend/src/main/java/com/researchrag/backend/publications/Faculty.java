@@ -1,8 +1,10 @@
 
 package com.researchrag.backend.publications;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.Data;
+import java.util.ArrayList;
 import java.util.List;
 
 @Entity
@@ -13,7 +15,7 @@ public class Faculty {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(nullable = false, unique = true)
     private String facultyId;
 
     @Column(nullable = false)
@@ -38,11 +40,11 @@ public class Faculty {
     private Integer i10Index;
 
     @OneToMany(mappedBy = "faculty", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<Publication> publications;
+    private List<Publication> publications = new ArrayList<>();
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "batch_id")
-    private FacultyUploadBatch facultyUploadBatch;
+    @OneToMany(mappedBy = "faculty", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnore // Avoid serialization loops
+    private List<FacultyBatchAssociation> batchAssociations = new ArrayList<>();
 
     @Column(length = 2000)
     private String summary;

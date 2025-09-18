@@ -7,6 +7,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Entity
 @Data
@@ -24,6 +25,13 @@ public class FacultyUploadBatch {
     @JoinColumn(name = "user_id")
     private User user;
 
-    @OneToMany(mappedBy = "facultyUploadBatch", cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<Faculty> facultyList = new ArrayList<>();
+    @OneToMany(mappedBy = "batch", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<FacultyBatchAssociation> batchAssociations = new ArrayList<>();
+
+    // Helper method to get faculty list through the association
+    public List<Faculty> getFacultyList() {
+        return this.batchAssociations.stream()
+                .map(FacultyBatchAssociation::getFaculty)
+                .collect(Collectors.toList());
+    }
 }

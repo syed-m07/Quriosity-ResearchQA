@@ -94,11 +94,11 @@ export const askQuestion = (qaRequest: QaRequest) => api.post<QaResponse>('/qa/a
 export const getHistory = (documentId: number) => api.get<QaHistoryResponse[]>(`/qa/history/${documentId}`);
 
 // Publications API
-export const uploadFacultyList = async (file: File, articlesLimit?: number): Promise<FacultySummary[]> => {
+export const uploadFacultyList = async (file: File, articles_limit?: number): Promise<FacultySummary[]> => {
   const formData = new FormData();
   formData.append('file', file);
-  if (articlesLimit) {
-    formData.append('articlesLimit', String(articlesLimit));
+  if (articles_limit) {
+    formData.append('articles_limit', String(articles_limit));
   }
 
   const response = await api.post('/publications/upload', formData, {

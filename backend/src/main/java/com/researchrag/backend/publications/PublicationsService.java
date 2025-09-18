@@ -39,6 +39,7 @@ public class PublicationsService {
     private final WebClient webClient;
     private final FacultyRepository facultyRepository;
     private final FacultyUploadBatchRepository facultyUploadBatchRepository;
+    private final FacultyBatchAssociationRepository facultyBatchAssociationRepository;
     private final ExportService exportService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -46,10 +47,13 @@ public class PublicationsService {
     private String pythonApiUrl;
 
     public PublicationsService(WebClient.Builder webClientBuilder, FacultyRepository facultyRepository,
-                               FacultyUploadBatchRepository facultyUploadBatchRepository, ExportService exportService) {
+                               FacultyUploadBatchRepository facultyUploadBatchRepository,
+                               FacultyBatchAssociationRepository facultyBatchAssociationRepository,
+                               ExportService exportService) {
         this.webClient = webClientBuilder.build();
         this.facultyRepository = facultyRepository;
         this.facultyUploadBatchRepository = facultyUploadBatchRepository;
+        this.facultyBatchAssociationRepository = facultyBatchAssociationRepository;
         this.exportService = exportService;
     }
 
@@ -68,7 +72,7 @@ public class PublicationsService {
             MultipartBodyBuilder builder = new MultipartBodyBuilder();
             builder.part("file", new FileSystemResource(tempFile));
             if (articlesLimit != null) {
-                builder.part("articles_limit", articlesLimit);
+                builder.part("articles_limit", String.valueOf(articlesLimit));
             }
 
             Mono<JsonNode> responseMono = webClient.post()
@@ -77,8 +81,8 @@ public class PublicationsService {
                     .bodyValue(builder.build())
                     .retrieve()
                     .bodyToMono(JsonNode.class)
-                    .doOnError(error -> System.err.println("### WebClient Error: " + error.getMessage()))
-                    .timeout(Duration.ofMinutes(5)); // Increased timeout for potentially long processing
+                    .doOnError(error -> logger.error("### WebClient Error: " + error.getMessage(), error))
+                    .timeout(Duration.ofMinutes(10));
 
             JsonNode responseNode = responseMono.block();
 
@@ -106,30 +110,18 @@ public class PublicationsService {
         String facultyId = facultyData.path("faculty_id").asText();
         if (facultyId == null || facultyId.isEmpty()) return null;
 
-        // Try to find an existing faculty by facultyId
-        Optional<Faculty> existingFacultyOptional = facultyRepository.findByFacultyId(facultyId);
-        Faculty faculty;
-
-        if (existingFacultyOptional.isPresent()) {
-            faculty = existingFacultyOptional.get();
-            // Log that an existing faculty is being updated
-            logger.info("Updating existing faculty profile for facultyId: {}", facultyId);
-        } else {
-            faculty = new Faculty();
-            faculty.setFacultyId(facultyId);
+        Faculty faculty = facultyRepository.findByFacultyId(facultyId).orElseGet(() -> {
             logger.info("Creating new faculty profile for facultyId: {}", facultyId);
-        }
-
-        // Always associate with the current batch (latest upload)
-        faculty.setFacultyUploadBatch(batch);
+            Faculty newFaculty = new Faculty();
+            newFaculty.setFacultyId(facultyId);
+            return newFaculty;
+        });
 
         JsonNode profileNode = facultyData.path("author_profile");
         faculty.setName(profileNode.path("name").asText());
         faculty.setAffiliations(profileNode.path("affiliations").asText());
-        
         String googleScholarId = facultyData.path("google_scholar_author_id").asText();
         faculty.setGoogleScholarId(googleScholarId.isEmpty() ? null : googleScholarId);
-
         faculty.setThumbnail(profileNode.path("thumbnail").asText());
 
         List<String> interests = new ArrayList<>();
@@ -141,29 +133,43 @@ public class PublicationsService {
         faculty.setHIndex(metricsNode.path("h_index").asInt(0));
         faculty.setI10Index(metricsNode.path("i10_index").asInt(0));
 
-        // Handle publications: clear existing and add new ones from the current upload
-        // This assumes the new upload provides the most up-to-date list of publications
-        if (faculty.getPublications() != null) {
-            faculty.getPublications().clear();
-        } else {
-            faculty.setPublications(new ArrayList<>());
-        }
-
         JsonNode articlesNode = facultyData.path("articles");
         if (articlesNode.isArray()) {
+            List<Publication> existingPublications = faculty.getPublications();
             for (JsonNode articleNode : articlesNode) {
-                Publication publication = new Publication();
-                publication.setTitle(articleNode.path("title").asText());
-                publication.setAuthors(articleNode.path("authors").asText());
-                publication.setPublicationSource(articleNode.path("publication").asText());
-                publication.setYear(articleNode.path("year").asInt(0));
-                publication.setCitations(articleNode.path("citations").asInt(0));
-                publication.setLink(articleNode.path("link").asText());
-                publication.setFaculty(faculty); // Set the relationship
-                faculty.getPublications().add(publication);
+                String title = articleNode.path("title").asText();
+                int year = articleNode.path("year").asInt(0);
+
+                boolean alreadyExists = existingPublications.stream()
+                        .anyMatch(p -> p.getTitle().equals(title) && p.getYear() == year);
+
+                if (!alreadyExists) {
+                    Publication publication = new Publication();
+                    publication.setTitle(title);
+                    publication.setAuthors(articleNode.path("authors").asText());
+                    publication.setPublicationSource(articleNode.path("publication").asText());
+                    publication.setYear(year);
+                    publication.setCitations(articleNode.path("citations").asInt(0));
+                    publication.setLink(articleNode.path("link").asText());
+                    publication.setFaculty(faculty);
+                    faculty.getPublications().add(publication);
+                }
             }
         }
-        return facultyRepository.save(faculty);
+
+        Faculty savedFaculty = facultyRepository.save(faculty);
+
+        if (!facultyBatchAssociationRepository.existsByFacultyAndBatch(savedFaculty, batch)) {
+            FacultyBatchAssociation association = FacultyBatchAssociation.builder()
+                    .faculty(savedFaculty)
+                    .batch(batch)
+                    .associationDate(LocalDateTime.now())
+                    .build();
+            facultyBatchAssociationRepository.save(association);
+            logger.info("Associated faculty {} with batch {}", savedFaculty.getName(), batch.getId());
+        }
+
+        return savedFaculty;
     }
 
     private File convertMultiPartToFile(MultipartFile file) throws IOException {
@@ -200,7 +206,7 @@ public class PublicationsService {
                         batch.getId(),
                         batch.getFileName(),
                         batch.getUploadDate(),
-                        batch.getFacultyList().size()
+                        batch.getBatchAssociations().size()
                 ))
                 .collect(Collectors.toList());
     }
@@ -212,7 +218,10 @@ public class PublicationsService {
         if (!batch.getUser().getId().equals(user.getId())) {
             throw new AccessDeniedException("You do not have permission to access this batch.");
         }
-        return facultyRepository.findByFacultyUploadBatchId(batchId).stream()
+
+        List<Faculty> facultyInBatch = facultyRepository.findByBatchId(batchId);
+
+        return facultyInBatch.stream()
                 .map(faculty -> new FacultySummaryDto(
                         faculty.getFacultyId(),
                         faculty.getName(),
@@ -257,7 +266,7 @@ public class PublicationsService {
                     .bodyValue(request)
                     .retrieve()
                     .bodyToMono(PythonSummarizationResponse.class)
-                    .timeout(Duration.ofMinutes(2)) // Add a 2-minute timeout for the LLM call
+                    .timeout(Duration.ofMinutes(2))
                     .block();
 
             if (pythonResponse != null && pythonResponse.getSummary() != null) {
