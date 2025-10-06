@@ -14,7 +14,7 @@ async def generate_with_openrouter(prompt: str) -> str:
         "Content-Type": "application/json",
     }
     data = {
-        "model": "deepseek/deepseek-r1-0528:free",
+        "model": "deepseek/deepseek-r1-0528-qwen3-8b:free",
         "messages": [{"role": "user", "content": prompt}]
     }
     

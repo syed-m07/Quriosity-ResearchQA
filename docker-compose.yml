@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  # Frontend Service (React + Nginx)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+  # Backend Service (Spring Boot)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    depends_on:
+      - db
+      - redis
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://db:3306/${MYSQL_DATABASE}
+      - SPRING_DATASOURCE_USERNAME=${MYSQL_USER}
+      - SPRING_DATASOURCE_PASSWORD=${MYSQL_PASSWORD}
+      - SPRING_REDIS_HOST=redis
+      - RAG_SERVICE_BASE_URL=http://python-api:8000
+    networks:
+      - app-network
+
+  # Python FastAPI Service
+  python-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - SERPAPI_API_KEY=${SERPAPI_API_KEY}
+      - HF_API_KEY=${HF_API_KEY}
+    volumes:
+      - ./chroma_db:/app/chroma_db
+    networks:
+      - app-network
+
+  # Python Worker Service
+  python-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: python worker.py
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+      - SPRING_BOOT_CALLBACK_URL=http://backend:8081/api/v1/documents/callback/status
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - SERPAPI_API_KEY=${SERPAPI_API_KEY}
+      - HF_API_KEY=${HF_API_KEY}
+    volumes:
+      - ./backend/temp-uploads:/app/backend/temp-uploads
+      - ./chroma_db:/app/chroma_db
+    networks:
+      - app-network
+
+  # MySQL Database Service
+  db:
+    image: mysql:8.0
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - app-network
+
+  # Redis Service
+  redis:
+    image: redis:alpine
+    networks:
+      - app-network
+
+volumes:
+  mysql-data:
+
+networks:
+  app-network:
+    driver: bridge
