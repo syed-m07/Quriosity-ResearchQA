@@ -5,7 +5,7 @@ python-dotenv==1.1.1
 
 # CPU-only packages to save space
 torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
-onnxruntime==1.22.1
+onnxruntime==1.19.2
 
 # Core ML/Langchain packages
 huggingface_hub==0.34.4
