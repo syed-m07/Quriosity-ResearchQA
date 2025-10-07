@@ -2,7 +2,7 @@ fastapi
 uvicorn[standard]
 pydantic
 python-dotenv
-torch
+torch --index-url https://download.pytorch.org/whl/cpu
 huggingface_hub
 langchain
 langchain-community
@@ -17,3 +17,4 @@ pandas
 openpyxl
 google-search-results
 python-docx
+python-multipart
