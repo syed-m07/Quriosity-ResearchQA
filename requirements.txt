@@ -1,20 +1,27 @@
-fastapi
-uvicorn[standard]
-pydantic
-python-dotenv
-torch --index-url https://download.pytorch.org/whl/cpu
-huggingface_hub
-langchain
-langchain-community
-sentence-transformers
-chromadb
-transformers
-PyMuPDF
-redis
-requests
-httpx
-pandas
-openpyxl
-google-search-results
-python-docx
-python-multipart
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+pydantic==2.11.7
+python-dotenv==1.1.1
+
+# CPU-only packages to save space
+torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+onnxruntime==1.22.1
+
+# Core ML/Langchain packages
+huggingface_hub==0.34.4
+langchain==0.3.27
+langchain-community==0.3.27
+sentence-transformers==5.1.0
+chromadb==1.0.20
+transformers==4.55.2
+
+# Utility packages
+PyMuPDF==1.26.3
+redis==6.4.0
+requests==2.32.5
+httpx==0.28.1
+pandas==2.3.2
+openpyxl==3.1.5
+google-search-results==2.4.2
+python-docx==1.2.0
+python-multipart==0.0.20
